@@ -600,13 +600,13 @@ let LANG = 'en';
 const CHAT_STR = {
   en: {
     greet: "Hi there! 🐋 Welcome to Pretty Whale. Ask me about our bingsu, teas, hours, or how to find us!",
-    notKey: "💡 The chat isn't connected yet — add an Anthropic API key in the page's script to bring me to life. (Menu, hours and location are all on this page in the meantime! 🐋)",
+    notKey: "💡 The chat isn't connected yet — add a Groq API key in the page's script to bring me to life. (Menu, hours and location are all on this page in the meantime! 🐋)",
     err: (n) => "Sorry, I couldn't reach the kitchen just now (error " + n + "). Please try again. 🐋",
     fail: "Something went wrong on my end — please try again in a moment. 🐋"
   },
   ko: {
     greet: "안녕하세요! 🐋 예쁜고래에 오신 걸 환영해요. 빙수, 차, 영업시간, 오시는 길 등 무엇이든 물어보세요!",
-    notKey: "💡 아직 채팅이 연결되지 않았어요 — 페이지 스크립트에 Anthropic API 키를 넣으면 제가 답해드릴 수 있어요. (그 전까지 메뉴·영업시간·위치는 이 페이지에서 확인하실 수 있어요! 🐋)",
+    notKey: "💡 아직 채팅이 연결되지 않았어요 — 페이지 스크립트에 Groq API 키를 넣으면 제가 답해드릴 수 있어요. (그 전까지 메뉴·영업시간·위치는 이 페이지에서 확인하실 수 있어요! 🐋)",
     err: (n) => "죄송해요, 지금은 연결이 어려워요 (오류 " + n + "). 잠시 후 다시 시도해 주세요. 🐋",
     fail: "문제가 생겼어요 — 잠시 후 다시 시도해 주세요. 🐋"
   }
@@ -646,16 +646,18 @@ const io = new IntersectionObserver((entries) => {
 document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 
 /* ============================================================
-   3) CHAT WIDGET — powered by the Anthropic API
+   3) CHAT WIDGET — powered by the Groq API (OpenAI-compatible)
    ------------------------------------------------------------
-   ⚠️  PASTE YOUR ANTHROPIC API KEY BELOW.
+   ⚠️  PASTE YOUR GROQ API KEY BELOW.
    SECURITY NOTE: a key placed in client-side JavaScript is
-   visible to anyone who views the page source. For a public/
-   production site, proxy these calls through your own small
-   backend (serverless function, etc.) and keep the key there.
-   This direct-from-browser setup is fine for local testing.
+   visible to anyone who views the page source — they could run
+   up your Groq usage. For a public/production site, proxy these
+   calls through your own small backend (serverless function,
+   etc.) and keep the key there. This direct-from-browser setup
+   is fine for local testing.
    ============================================================ */
-const API_KEY = ""; // <-- PASTE YOUR ANTHROPIC API KEY HERE (starts with "sk-ant-")
+const GROQ_API_KEY = ""; // <-- PASTE YOUR GROQ API KEY HERE (starts with "gsk_")
+const GROQ_MODEL   = "llama-3.3-70b-versatile"; // fast & capable; swap to "llama-3.1-8b-instant" for lower cost/latency
 
 const SYSTEM_PROMPT =
   "You are a friendly assistant for 예쁜고래 (Pretty Whale) Coffee Shop in Ulsan, Korea. " +
@@ -714,7 +716,7 @@ async function send(){
   sendB.disabled = true;
 
   // No key yet? Be honest about it instead of failing silently.
-  if (!API_KEY){
+  if (!GROQ_API_KEY){
     addMsg('note', CHAT_STR[LANG].notKey);
     sendB.disabled = false;
     history.pop();
@@ -723,20 +725,18 @@ async function send(){
 
   const typing = showTyping();
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": API_KEY,
-        "anthropic-version": "2023-06-01",
-        // Required header to allow calling the API directly from a browser:
-        "anthropic-dangerous-direct-browser-access": "true"
+        "Authorization": "Bearer " + GROQ_API_KEY
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: GROQ_MODEL,
         max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        messages: history
+        temperature: 0.6,
+        // OpenAI-style: the system prompt is the first message in the list
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history]
       })
     });
 
@@ -745,17 +745,13 @@ async function send(){
     if (!res.ok){
       const err = await res.text();
       addMsg('note', CHAT_STR[LANG].err(res.status));
-      console.error("Anthropic API error:", err);
+      console.error("Groq API error:", err);
       sendB.disabled = false;
       return;
     }
 
     const data = await res.json();
-    const reply = (data.content || [])
-      .filter(b => b.type === "text")
-      .map(b => b.text)
-      .join("\n")
-      .trim() || "🐋";
+    const reply = (data.choices?.[0]?.message?.content || "").trim() || "🐋";
 
     addMsg('bot', reply);
     history.push({ role: 'assistant', content: reply });
